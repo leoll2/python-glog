@@ -4,6 +4,7 @@ import logging
 import time
 import traceback
 import os
+import sys
 
 import gflags as flags
 
@@ -55,10 +56,9 @@ class GlogFormatter(logging.Formatter):
 
 
 class Logger(object):
-    def __init__(self, name):
+    def __init__(self, name, filename=None):
         self.logger = logging.getLogger(name)
-        self.logger.propagate = False
-        self.logger.addHandler(global_handler)
+        init(self.logger, filename)
 
         self.debug = self.logger.debug
         self.info = self.logger.info
@@ -70,8 +70,7 @@ class Logger(object):
         self.log = self.logger.log
 
     def setLevel(self, newlevel):
-        self.logger.setLevel(newlevel)
-        self.logger.debug("Log level set to %s", newlevel)
+        setLevel(newlevel, self.logger)
 
 
 debug = logging.debug
@@ -118,19 +117,33 @@ GLOG_PREFIX_REGEX = (
 """Regex you can use to parse glog line prefixes."""
 
 global_logger = logging.getLogger()
-global_logger.propagate = False
-global_handler = logging.StreamHandler()
-global_handler.setFormatter(GlogFormatter())
-global_logger.addHandler(global_handler)
+stdout_handler = logging.StreamHandler(sys.stdout)
+stderr_handler = logging.StreamHandler(sys.stderr)
+file_handlers = dict()
 
 
-def setLevel(newlevel):
-    global_logger.setLevel(newlevel)
-    global_logger.debug("Log level set to %s", newlevel)
+def setLevel(newlevel, logger=global_logger):
+    logger.setLevel(newlevel)
+    logger.debug("Log level set to %s", newlevel)
 
 
-def init():
-    global_logger.setLevel(FLAGS.verbosity)
+def init(logger=None, filename=None):
+    if logger is None:
+        logger = global_logger
+    logger.propagate = False
+    if filename is None:
+        handler = stderr_handler
+    elif filename == "stderr":
+        handler = stderr_handler
+    elif filename == "stdout":
+        handler = stdout_handler
+    elif filename in file_handlers:
+        handler = file_handlers[filename]
+    else:
+        handler = logging.FileHandler(filename)
+        file_handlers[filename] = handler
+    handler.setFormatter(GlogFormatter())
+    logger.addHandler(handler)
 
 
 class CaptureWarningsFlag(flags.BooleanFlag):
@@ -175,6 +188,7 @@ flags.DEFINE(
     help="Logging verbosity",
 )
 
+init(global_logger)
 
 # Define functions emulating C++ glog check-macros
 # https://htmlpreview.github.io/?https://github.com/google/glog/master/doc/glog.html#check
@@ -210,17 +224,17 @@ def check_failed(message):
         log_record = global_logger.makeRecord(
             "CRITICAL", 50, filename, line_num, message, None, None
         )
-        global_handler.handle(log_record)
+        stderr_handler.handle(log_record)
 
         log_record = global_logger.makeRecord(
             "DEBUG", 10, filename, line_num, "Check failed here:", None, None
         )
-        global_handler.handle(log_record)
+        stderr_handler.handle(log_record)
         for line in stacktrace_lines:
             log_record = global_logger.makeRecord(
                 "DEBUG", 10, filename, line_num, line, None, None
             )
-            global_handler.handle(log_record)
+            stderr_handler.handle(log_record)
         raise
     return
 
