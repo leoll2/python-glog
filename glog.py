@@ -12,7 +12,7 @@ FLAGS = flags.FLAGS
 
 def format_message(record):
     try:
-        record_message = '%s' % (record.msg % record.args)
+        record_message = "%s" % (record.msg % record.args)
     except TypeError:
         record_message = record.msg
     return record_message
@@ -20,11 +20,11 @@ def format_message(record):
 
 class GlogFormatter(logging.Formatter):
     LEVEL_MAP = {
-        logging.FATAL: 'F',  # FATAL is alias of CRITICAL
-        logging.ERROR: 'E',
-        logging.WARN: 'W',
-        logging.INFO: 'I',
-        logging.DEBUG: 'D'
+        logging.FATAL: "F",  # FATAL is alias of CRITICAL
+        logging.ERROR: "E",
+        logging.WARN: "W",
+        logging.INFO: "I",
+        logging.DEBUG: "D",
     }
 
     def __init__(self):
@@ -34,30 +34,45 @@ class GlogFormatter(logging.Formatter):
         try:
             level = GlogFormatter.LEVEL_MAP[record.levelno]
         except KeyError:
-            level = '?'
+            level = "?"
         date = time.localtime(record.created)
         date_usec = (record.created - int(record.created)) * 1e6
-        record_message = '%c%02d%02d %02d:%02d:%02d.%06d %s %s:%d] %s' % (
-            level, date.tm_mon, date.tm_mday, date.tm_hour, date.tm_min,
-            date.tm_sec, date_usec,
-            record.process if record.process is not None else '?????',
+        record_message = "%c%02d%02d %02d:%02d:%02d.%06d %s %s:%d] %s" % (
+            level,
+            date.tm_mon,
+            date.tm_mday,
+            date.tm_hour,
+            date.tm_min,
+            date.tm_sec,
+            date_usec,
+            record.process if record.process is not None else "?????",
             record.filename,
             record.lineno,
-            format_message(record))
+            format_message(record),
+        )
         record.getMessage = lambda: record_message
         return logging.Formatter.format(self, record)
 
-logger = logging.getLogger()
-handler = logging.StreamHandler()
 
+class Logger(object):
+    def __init__(self, name):
+        self.logger = logging.getLogger(name)
+        self.logger.propagate = False
+        self.logger.addHandler(global_handler)
 
-def setLevel(newlevel):
-    logger.setLevel(newlevel)
-    logger.debug('Log level set to %s', newlevel)
+        self.debug = self.logger.debug
+        self.info = self.logger.info
+        self.warning = self.logger.warning
+        self.warn = self.logger.warning
+        self.error = self.logger.error
+        self.exception = self.logger.exception
+        self.fatal = self.logger.fatal
+        self.log = self.logger.log
 
+    def setLevel(self, newlevel):
+        self.logger.setLevel(newlevel)
+        self.logger.debug("Log level set to %s", newlevel)
 
-def init():
-    setLevel(FLAGS.verbosity)
 
 debug = logging.debug
 info = logging.info
@@ -76,17 +91,18 @@ ERROR = logging.ERROR
 FATAL = logging.FATAL
 
 _level_names = {
-    DEBUG: 'DEBUG',
-    INFO: 'INFO',
-    WARN: 'WARN',
-    ERROR: 'ERROR',
-    FATAL: 'FATAL'
+    DEBUG: "DEBUG",
+    INFO: "INFO",
+    WARN: "WARN",
+    ERROR: "ERROR",
+    FATAL: "FATAL",
 }
 
 _level_letters = [name[0] for name in _level_names.values()]
 
 GLOG_PREFIX_REGEX = (
-    r"""
+    (
+        r"""
     (?x) ^
     (?P<severity>[%s])
     (?P<month>\d\d)(?P<day>\d\d)\s
@@ -95,21 +111,41 @@ GLOG_PREFIX_REGEX = (
     (?P<process_id>-?\d+)\s
     (?P<filename>[a-zA-Z<_][\w._<>-]+):(?P<line>\d+)
     \]\s
-    """) % ''.join(_level_letters)
+    """
+    )
+    % "".join(_level_letters)
+)
 """Regex you can use to parse glog line prefixes."""
 
-handler.setFormatter(GlogFormatter())
-logger.addHandler(handler)
+global_logger = logging.getLogger()
+global_logger.propagate = False
+global_handler = logging.StreamHandler()
+global_handler.setFormatter(GlogFormatter())
+global_logger.addHandler(global_handler)
+
+
+def setLevel(newlevel):
+    global_logger.setLevel(newlevel)
+    global_logger.debug("Log level set to %s", newlevel)
+
+
+def init():
+    global_logger.setLevel(FLAGS.verbosity)
 
 
 class CaptureWarningsFlag(flags.BooleanFlag):
     def __init__(self):
-        flags.BooleanFlag.__init__(self, 'glog_capture_warnings', True,
-                                   "Redirect warnings to log.warn messages")
+        flags.BooleanFlag.__init__(
+            self,
+            "glog_capture_warnings",
+            True,
+            "Redirect warnings to log.warn messages",
+        )
 
     def Parse(self, arg):
         flags.BooleanFlag.Parse(self, arg)
         logging.captureWarnings(self.value)
+
 
 flags.DEFINE_flag(CaptureWarningsFlag())
 
@@ -123,23 +159,26 @@ class VerbosityParser(flags.ArgumentParser):
             # Look up the name for this level (DEBUG, INFO, etc) if it exists
             try:
                 level = logging._levelNames.get(intarg, intarg)
-            except AttributeError:   # This was renamed somewhere b/w 2.7 and 3.4
+            except AttributeError:  # This was renamed somewhere b/w 2.7 and 3.4
                 level = logging._levelToName.get(intarg, intarg)
         except ValueError:
             level = arg
         setLevel(level)
         return level
 
+
 flags.DEFINE(
     parser=VerbosityParser(),
     serializer=flags.ArgumentSerializer(),
-    name='verbosity',
+    name="verbosity",
     default=logging.INFO,
-    help='Logging verbosity')
+    help="Logging verbosity",
+)
 
 
 # Define functions emulating C++ glog check-macros
 # https://htmlpreview.github.io/?https://github.com/google/glog/master/doc/glog.html#check
+
 
 def format_stacktrace(stack):
     """Print a stack trace that is easier to read.
@@ -168,17 +207,20 @@ def check_failed(message):
     try:
         raise FailedCheckException(message)
     except FailedCheckException:
-        log_record = logger.makeRecord('CRITICAL', 50, filename, line_num,
-                                       message, None, None)
-        handler.handle(log_record)
+        log_record = global_logger.makeRecord(
+            "CRITICAL", 50, filename, line_num, message, None, None
+        )
+        global_handler.handle(log_record)
 
-        log_record = logger.makeRecord('DEBUG', 10, filename, line_num,
-                                       'Check failed here:', None, None)
-        handler.handle(log_record)
+        log_record = global_logger.makeRecord(
+            "DEBUG", 10, filename, line_num, "Check failed here:", None, None
+        )
+        global_handler.handle(log_record)
         for line in stacktrace_lines:
-            log_record = logger.makeRecord('DEBUG', 10, filename, line_num,
-                                           line, None, None)
-            handler.handle(log_record)
+            log_record = global_logger.makeRecord(
+                "DEBUG", 10, filename, line_num, line, None, None
+            )
+            global_handler.handle(log_record)
         raise
     return
 
